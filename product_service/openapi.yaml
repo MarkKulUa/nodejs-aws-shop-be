@@ -1,0 +1,104 @@
+openapi: 3.0.3
+info:
+  title: Product Service API
+  description: API for managing Porsche Cayenne accessories catalog
+  version: 1.0.0
+
+servers:
+  - url: https://8s4m8ymaub.execute-api.eu-west-1.amazonaws.com/prod
+    description: Production
+
+paths:
+  /products:
+    get:
+      summary: Get all products
+      description: Returns a list of all available products
+      operationId: getProductsList
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /products/{productId}:
+    get:
+      summary: Get product by ID
+      description: Returns a single product by its ID
+      operationId: getProductsById
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          description: The ID of the product to retrieve
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          description: Product ID is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  schemas:
+    Product:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - price
+        - count
+      properties:
+        id:
+          type: string
+          example: "1"
+        title:
+          type: string
+          example: "Porsche Cayenne All-Weather Floor Mats"
+        description:
+          type: string
+          example: "Heavy-duty rubber floor mats designed to protect your Cayenne interior"
+        price:
+          type: number
+          format: float
+          example: 150
+        count:
+          type: integer
+          example: 12
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Product not found"

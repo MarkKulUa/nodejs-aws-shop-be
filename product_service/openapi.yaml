@@ -1,18 +1,18 @@
 openapi: 3.0.3
 info:
   title: Product Service API
-  description: API for managing Porsche Cayenne accessories catalog
-  version: 1.0.0
+  description: API for managing Porsche Cayenne accessories catalog backed by DynamoDB
+  version: 2.0.0
 
 servers:
-  - url: https://8s4m8ymaub.execute-api.eu-west-1.amazonaws.com/prod
+  - url: https://<api-id>.execute-api.eu-west-1.amazonaws.com/prod
     description: Production
 
 paths:
   /products:
     get:
       summary: Get all products
-      description: Returns a list of all available products
+      description: Returns a list of products joined with their stock counts
       operationId: getProductsList
       responses:
         "200":
@@ -22,7 +22,37 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Product"
+                  $ref: "#/components/schemas/AvailableProduct"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      summary: Create a new product
+      description: Creates a product and its stock entry transactionally
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+      responses:
+        "201":
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailableProduct"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           description: Internal server error
           content:
@@ -33,7 +63,7 @@ paths:
   /products/{productId}:
     get:
       summary: Get product by ID
-      description: Returns a single product by its ID
+      description: Returns a single product joined with its stock
       operationId: getProductsById
       parameters:
         - name: productId
@@ -48,7 +78,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Product"
+                $ref: "#/components/schemas/AvailableProduct"
         "400":
           description: Product ID is required
           content:
@@ -70,7 +100,7 @@ paths:
 
 components:
   schemas:
-    Product:
+    AvailableProduct:
       type: object
       required:
         - id
@@ -81,13 +111,14 @@ components:
       properties:
         id:
           type: string
-          example: "1"
+          format: uuid
+          example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
         title:
           type: string
           example: "Porsche Cayenne All-Weather Floor Mats"
         description:
           type: string
-          example: "Heavy-duty rubber floor mats designed to protect your Cayenne interior"
+          example: "Heavy-duty rubber floor mats ..."
         price:
           type: number
           format: float
@@ -95,6 +126,29 @@ components:
         count:
           type: integer
           example: 12
+
+    CreateProductRequest:
+      type: object
+      required:
+        - title
+        - price
+        - count
+      properties:
+        title:
+          type: string
+          example: "New Product"
+        description:
+          type: string
+          example: "Optional description"
+        price:
+          type: number
+          format: float
+          minimum: 0
+          example: 199
+        count:
+          type: integer
+          minimum: 0
+          example: 10
 
     Error:
       type: object

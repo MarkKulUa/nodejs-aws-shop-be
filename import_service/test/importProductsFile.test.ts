@@ -15,7 +15,6 @@ beforeEach(() => {
   getSignedUrlMock.mockReset();
   process.env.BUCKET_NAME = "test-bucket";
   process.env.UPLOAD_FOLDER = "uploaded";
-  console.log("BEFORE-EACH BUCKET_NAME=", process.env.BUCKET_NAME);
 });
 
 afterAll(() => {

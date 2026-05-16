@@ -12,7 +12,6 @@ export const handler = async (event: APIGatewayProxyEvent) => {
     queryStringParameters: event.queryStringParameters,
   });
 
-  console.log("DEBUG env:", { B: process.env.BUCKET_NAME, type: typeof process.env.BUCKET_NAME });
   const bucketName = process.env.BUCKET_NAME ?? "";
   const uploadFolder = process.env.UPLOAD_FOLDER ?? "uploaded";
   const signedUrlTtl = Number(process.env.SIGNED_URL_TTL ?? "300");

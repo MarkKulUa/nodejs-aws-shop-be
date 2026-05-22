@@ -5,6 +5,7 @@ import * as lambdaNodeJs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apiGateway from 'aws-cdk-lib/aws-apigateway';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as path from 'path';
 
 const UPLOAD_FOLDER = 'uploaded';
@@ -33,10 +34,20 @@ export class ImportServiceStack extends cdk.Stack {
 
     const bucket = s3.Bucket.fromBucketName(this, 'ImportBucket', bucketName);
 
+    // Import the SQS queue created by Product Service
+    const catalogItemsQueueArn = cdk.Fn.importValue('CatalogItemsQueueArn');
+    const catalogItemsQueueUrl = cdk.Fn.importValue('CatalogItemsQueueUrl');
+    const catalogItemsQueue = sqs.Queue.fromQueueArn(
+      this,
+      'CatalogItemsQueue',
+      catalogItemsQueueArn,
+    );
+
     const commonEnv = {
       BUCKET_NAME: bucket.bucketName,
       UPLOAD_FOLDER,
       PARSED_FOLDER,
+      SQS_QUEUE_URL: catalogItemsQueueUrl,
     };
 
     // Lambda: GET /import?name=...
@@ -74,6 +85,7 @@ export class ImportServiceStack extends cdk.Stack {
     bucket.grantRead(importFileParser, `${UPLOAD_FOLDER}/*`);
     bucket.grantPut(importFileParser, `${PARSED_FOLDER}/*`);
     bucket.grantDelete(importFileParser, `${UPLOAD_FOLDER}/*`);
+    catalogItemsQueue.grantSendMessages(importFileParser);
 
     // S3 trigger: ObjectCreated:* with prefix filter "uploaded/"
     bucket.addEventNotification(

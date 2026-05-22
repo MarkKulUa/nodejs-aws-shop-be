@@ -1,11 +1,12 @@
 import { Readable } from "node:stream";
 import type { S3Event } from "aws-lambda";
 
-const sendMock = jest.fn();
+const s3SendMock = jest.fn();
+const sqsSendMock = jest.fn();
 
 jest.mock("@aws-sdk/client-s3", () => ({
   S3Client: jest.fn().mockImplementation(() => ({
-    send: (...args: unknown[]) => sendMock(...args),
+    send: (...args: unknown[]) => s3SendMock(...args),
   })),
   GetObjectCommand: jest
     .fn()
@@ -18,15 +19,28 @@ jest.mock("@aws-sdk/client-s3", () => ({
     .mockImplementation((input: unknown) => ({ __type: "DeleteObject", input })),
 }));
 
+jest.mock("@aws-sdk/client-sqs", () => ({
+  SQSClient: jest.fn().mockImplementation(() => ({
+    send: (...args: unknown[]) => sqsSendMock(...args),
+  })),
+  SendMessageCommand: jest
+    .fn()
+    .mockImplementation((input: unknown) => ({ __type: "SendMessage", input })),
+}));
+
 beforeEach(() => {
-  sendMock.mockReset();
+  s3SendMock.mockReset();
+  sqsSendMock.mockReset();
+  sqsSendMock.mockResolvedValue({});
   process.env.UPLOAD_FOLDER = "uploaded";
   process.env.PARSED_FOLDER = "parsed";
+  process.env.SQS_QUEUE_URL = "https://sqs.eu-west-1.amazonaws.com/123456789/catalogItemsQueue";
 });
 
 afterAll(() => {
   delete process.env.UPLOAD_FOLDER;
   delete process.env.PARSED_FOLDER;
+  delete process.env.SQS_QUEUE_URL;
 });
 
 const createEvent = (key: string, bucket = "my-bucket"): S3Event =>
@@ -45,42 +59,41 @@ const csvBody = (rows: string[]): Readable => Readable.from(rows.join("\n"));
 
 import { handler } from "../lambda/importFileParser";
 
-const importHandler = (event: S3Event): Promise<void> => handler(event);
-
 describe("importFileParser", () => {
-  it("should parse CSV rows from S3 stream and log them", async () => {
-    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
-
-    sendMock.mockImplementation((cmd: { __type: string }) => {
+  it("should send each CSV row to SQS", async () => {
+    s3SendMock.mockImplementation((cmd: { __type: string }) => {
       if (cmd.__type === "GetObject") {
         return Promise.resolve({
-          Body: csvBody(["a,b", "1,2", "3,4"]),
+          Body: csvBody(["title,price,count", "ProductA,10,5", "ProductB,20,3"]),
         });
       }
       return Promise.resolve({});
     });
 
-    await importHandler(createEvent("uploaded/products.csv"));
+    await handler(createEvent("uploaded/products.csv"));
 
-    const csvRowLogs = logSpy.mock.calls.filter((c) => c[0] === "CSV row:");
-    expect(csvRowLogs).toHaveLength(2);
-    expect(csvRowLogs[0][1]).toEqual({ a: "1", b: "2" });
-    expect(csvRowLogs[1][1]).toEqual({ a: "3", b: "4" });
+    expect(sqsSendMock).toHaveBeenCalledTimes(2);
 
-    logSpy.mockRestore();
+    const firstCall = sqsSendMock.mock.calls[0][0];
+    const parsed = JSON.parse(firstCall.input.MessageBody);
+    expect(parsed).toEqual({ title: "ProductA", price: "10", count: "5" });
+
+    const secondCall = sqsSendMock.mock.calls[1][0];
+    const parsed2 = JSON.parse(secondCall.input.MessageBody);
+    expect(parsed2).toEqual({ title: "ProductB", price: "20", count: "3" });
   });
 
   it("should copy parsed file to 'parsed/' and delete the original", async () => {
-    sendMock.mockImplementation((cmd: { __type: string }) => {
+    s3SendMock.mockImplementation((cmd: { __type: string }) => {
       if (cmd.__type === "GetObject") {
         return Promise.resolve({ Body: csvBody(["a,b", "1,2"]) });
       }
       return Promise.resolve({});
     });
 
-    await importHandler(createEvent("uploaded/products.csv"));
+    await handler(createEvent("uploaded/products.csv"));
 
-    const calls = sendMock.mock.calls.map((c) => c[0]);
+    const calls = s3SendMock.mock.calls.map((c) => c[0]);
 
     const copyCmd = calls.find((c) => c.__type === "CopyObject");
     const deleteCmd = calls.find((c) => c.__type === "DeleteObject");
@@ -106,30 +119,36 @@ describe("importFileParser", () => {
   it("should skip objects outside of uploaded/ prefix", async () => {
     const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
 
-    await importHandler(createEvent("other/products.csv"));
+    await handler(createEvent("other/products.csv"));
 
     expect(warnSpy).toHaveBeenCalled();
-    expect(sendMock).not.toHaveBeenCalled();
+    expect(s3SendMock).not.toHaveBeenCalled();
+    expect(sqsSendMock).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
 
   it("should rethrow when S3 GetObject fails", async () => {
-    sendMock.mockRejectedValue(new Error("boom"));
+    s3SendMock.mockRejectedValue(new Error("boom"));
     await expect(
-      importHandler(createEvent("uploaded/products.csv"))
+      handler(createEvent("uploaded/products.csv"))
     ).rejects.toThrow("boom");
   });
 
-  it("should decode URL-encoded keys from S3 events", async () => {
-    sendMock.mockImplementation((cmd: { __type: string; input: { Key: string } }) => {
+  it("should send correct QueueUrl in SQS messages", async () => {
+    s3SendMock.mockImplementation((cmd: { __type: string }) => {
       if (cmd.__type === "GetObject") {
-        expect(cmd.input.Key).toBe("uploaded/my file.csv");
-        return Promise.resolve({ Body: csvBody(["a,b", "1,2"]) });
+        return Promise.resolve({ Body: csvBody(["x,y", "1,2"]) });
       }
       return Promise.resolve({});
     });
 
-    await importHandler(createEvent("uploaded/my+file.csv"));
+    await handler(createEvent("uploaded/test.csv"));
+
+    expect(sqsSendMock).toHaveBeenCalledTimes(1);
+    const cmd = sqsSendMock.mock.calls[0][0];
+    expect(cmd.input.QueueUrl).toBe(
+      "https://sqs.eu-west-1.amazonaws.com/123456789/catalogItemsQueue"
+    );
   });
 });

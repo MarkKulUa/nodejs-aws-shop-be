@@ -4,6 +4,10 @@ import * as lambdaNodeJs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apiGateway from 'aws-cdk-lib/aws-apigateway';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as path from 'path';
 
 const PRODUCTS_TABLE_NAME = 'products';
@@ -25,6 +29,31 @@ export class ProductServiceStack extends cdk.Stack {
       STOCKS_TABLE_NAME,
     );
 
+    // ─── SQS Queue ───────────────────────────────────────────────────────
+    const catalogItemsQueue = new sqs.Queue(this, 'CatalogItemsQueue', {
+      queueName: 'catalogItemsQueue',
+    });
+
+    // ─── SNS Topic ───────────────────────────────────────────────────────
+    const createProductTopic = new sns.Topic(this, 'CreateProductTopic', {
+      topicName: 'createProductTopic',
+    });
+
+    // Email subscription (main)
+    createProductTopic.addSubscription(
+      new snsSubscriptions.EmailSubscription('mark.kulishenko@gmail.com'),
+    );
+
+    // Additional subscription with filter policy (for large batches, 5+ products)
+    createProductTopic.addSubscription(
+      new snsSubscriptions.EmailSubscription('mark.kulishenko+bulk@gmail.com', {
+        filterPolicy: {
+          count: sns.SubscriptionFilter.numericFilter({ greaterThanOrEqualTo: 5 }),
+        },
+      }),
+    );
+
+    // ─── Common Lambda Environment ───────────────────────────────────────
     const commonLambdaEnv = {
       PRODUCTS_TABLE: PRODUCTS_TABLE_NAME,
       STOCKS_TABLE: STOCKS_TABLE_NAME,
@@ -57,7 +86,26 @@ export class ProductServiceStack extends cdk.Stack {
       environment: commonLambdaEnv,
     });
 
-    // IAM grants
+    // Lambda: SQS trigger — catalogBatchProcess
+    const catalogBatchProcess = new lambdaNodeJs.NodejsFunction(this, 'CatalogBatchProcessFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../lambda/catalogBatchProcess.ts'),
+      handler: 'handler',
+      functionName: 'catalogBatchProcess',
+      environment: {
+        ...commonLambdaEnv,
+        SNS_TOPIC_ARN: createProductTopic.topicArn,
+      },
+    });
+
+    // SQS event source with batchSize = 5
+    catalogBatchProcess.addEventSource(
+      new lambdaEventSources.SqsEventSource(catalogItemsQueue, {
+        batchSize: 5,
+      }),
+    );
+
+    // ─── IAM Grants ──────────────────────────────────────────────────────
     productsTable.grantReadData(getProductsList);
     stocksTable.grantReadData(getProductsList);
 
@@ -67,7 +115,12 @@ export class ProductServiceStack extends cdk.Stack {
     productsTable.grantWriteData(createProduct);
     stocksTable.grantWriteData(createProduct);
 
-    // API Gateway
+    productsTable.grantWriteData(catalogBatchProcess);
+    stocksTable.grantWriteData(catalogBatchProcess);
+
+    createProductTopic.grantPublish(catalogBatchProcess);
+
+    // ─── API Gateway ─────────────────────────────────────────────────────
     const api = new apiGateway.RestApi(this, 'ProductServiceApi', {
       restApiName: 'Product Service',
       defaultCorsPreflightOptions: {
@@ -83,8 +136,23 @@ export class ProductServiceStack extends cdk.Stack {
     const productByIdResource = productsResource.addResource('{productId}');
     productByIdResource.addMethod('GET', new apiGateway.LambdaIntegration(getProductsById));
 
+    // ─── Outputs ─────────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'ApiUrl', {
       value: api.url,
+    });
+
+    new cdk.CfnOutput(this, 'CatalogItemsQueueUrl', {
+      value: catalogItemsQueue.queueUrl,
+      exportName: 'CatalogItemsQueueUrl',
+    });
+
+    new cdk.CfnOutput(this, 'CatalogItemsQueueArn', {
+      value: catalogItemsQueue.queueArn,
+      exportName: 'CatalogItemsQueueArn',
+    });
+
+    new cdk.CfnOutput(this, 'CreateProductTopicArn', {
+      value: createProductTopic.topicArn,
     });
   }
 }

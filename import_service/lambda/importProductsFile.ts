@@ -41,7 +41,6 @@ export const handler = async (event: APIGatewayProxyEvent) => {
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: key,
-      ContentType: "text/csv",
     });
 
     const signedUrl = await getSignedUrl(s3, command, {

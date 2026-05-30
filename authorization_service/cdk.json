@@ -1,5 +1,5 @@
 {
-  "app": "npx ts-node --prefer-ts-exts bin/import_service.ts",
+  "app": "npx ts-node --prefer-ts-exts bin/authorization_service.ts",
   "watch": {
     "include": ["**"],
     "exclude": [
@@ -15,7 +15,6 @@
     ]
   },
   "context": {
-    "bucketName": "mark-kul-import-service-eu-west-1",
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:checkSecretUsage": true,
     "@aws-cdk/core:target-partitions": ["aws", "aws-cn"],

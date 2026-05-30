@@ -38,23 +38,13 @@ const processRecord = async (record: S3EventRecord) => {
   }
 
   const stream = getResp.Body as Readable;
-  let count = 0;
+  const rows: Record<string, string>[] = [];
 
   await new Promise<void>((resolve, reject) => {
     stream
       .pipe(csvParser())
-      .on("data", async (row: Record<string, string>) => {
-        count += 1;
-        try {
-          await sqs.send(
-            new SendMessageCommand({
-              QueueUrl: sqsQueueUrl,
-              MessageBody: JSON.stringify(row),
-            })
-          );
-        } catch (err) {
-          console.error("Failed to send message to SQS:", err);
-        }
+      .on("data", (row: Record<string, string>) => {
+        rows.push(row);
       })
       .on("error", (err: Error) => reject(err))
       .on("end", () => resolve());
@@ -62,7 +52,19 @@ const processRecord = async (record: S3EventRecord) => {
     stream.on("error", (err: Error) => reject(err));
   });
 
-  console.log(`Sent ${count} messages to SQS from ${key}`);
+  // Send each record to SQS and wait for all of them to complete.
+  await Promise.all(
+    rows.map((row) =>
+      sqs.send(
+        new SendMessageCommand({
+          QueueUrl: sqsQueueUrl,
+          MessageBody: JSON.stringify(row),
+        })
+      )
+    )
+  );
+
+  console.log(`Sent ${rows.length} messages to SQS from ${key}`);
 
   const parsedKey = key.replace(`${uploadFolder}/`, `${parsedFolder}/`);
 

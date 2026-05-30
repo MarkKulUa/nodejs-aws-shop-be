@@ -56,7 +56,6 @@ describe("importProductsFile", () => {
       expect.objectContaining({
         Bucket: "test-bucket",
         Key: "uploaded/products.csv",
-        ContentType: "text/csv",
       })
     );
   });

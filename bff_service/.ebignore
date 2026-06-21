@@ -1,0 +1,25 @@
+# When this file exists, the EB CLI zips the working directory (instead of
+# using git), so the Dockerfile is included even if uncommitted.
+# Image is built ON the instance from the Dockerfile, so ship only the
+# sources/manifests needed for that build and drop everything generated.
+
+# Installed deps (BIG) — reinstalled inside the image via `npm ci`.
+node_modules
+
+# Compiled output — rebuilt inside the image via `npm run build`.
+dist
+
+# Git metadata.
+.git
+.gitignore
+
+# EB CLI local state — must not be shipped inside the bundle.
+.elasticbeanstalk
+
+# Local env / secrets — injected via EB --envvars.
+.env
+.env.example
+
+# Logs and OS junk.
+*.log
+.DS_Store

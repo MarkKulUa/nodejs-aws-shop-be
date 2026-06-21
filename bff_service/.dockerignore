@@ -1,0 +1,23 @@
+# Installed deps (BIG) — reinstalled inside the image via `npm ci`.
+node_modules
+
+# Compiled output — rebuilt inside the image via `npm run build`.
+dist
+
+# Git metadata.
+.git
+.gitignore
+
+# Local env / secrets — env vars are injected via EB --envvars.
+.env
+.env.example
+
+# Logs and OS junk.
+*.log
+.DS_Store
+
+# Docker/EB files and docs — not needed inside the build context.
+Dockerfile
+.dockerignore
+.ebignore
+README.md
